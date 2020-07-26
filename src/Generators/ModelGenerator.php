@@ -3,22 +3,13 @@
 namespace Blueprint\Generators;
 
 use Blueprint\Blueprint;
-use Blueprint\Contracts\Generator;
 use Blueprint\Models\Column;
 use Blueprint\Models\Model;
 use Blueprint\Tree;
 use Illuminate\Support\Str;
 
-class ModelGenerator implements Generator
+class ModelGenerator extends Generator
 {
-    /** @var \Illuminate\Contracts\Filesystem\Filesystem */
-    private $files;
-
-    public function __construct($files)
-    {
-        $this->files = $files;
-    }
-
     public function output(Tree $tree): array
     {
         $output = [];
@@ -27,15 +18,7 @@ class ModelGenerator implements Generator
 
         /** @var \Blueprint\Models\Model $model */
         foreach ($tree->models() as $model) {
-            $path = $this->getPath($model);
-
-            if (! $this->files->exists(dirname($path))) {
-                $this->files->makeDirectory(dirname($path), 0755, true);
-            }
-
-            $this->files->put($path, $this->populateStub($stub, $model));
-
-            $output['created'][] = $path;
+            $output['created'][] = $this->outputStub($model, $stub);
         }
 
         return $output;

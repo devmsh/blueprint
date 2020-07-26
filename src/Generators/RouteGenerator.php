@@ -2,21 +2,12 @@
 
 namespace Blueprint\Generators;
 
-use Blueprint\Contracts\Generator;
 use Blueprint\Models\Controller;
 use Blueprint\Tree;
 use Illuminate\Support\Str;
 
-class RouteGenerator implements Generator
+class RouteGenerator extends Generator
 {
-    /** @var \Illuminate\Contracts\Filesystem\Filesystem */
-    private $files;
-
-    public function __construct($files)
-    {
-        $this->files = $files;
-    }
-
     public function output(Tree $tree): array
     {
         if (empty($tree->controllers())) {

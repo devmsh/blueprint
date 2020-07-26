@@ -18,9 +18,6 @@ class ResourceGenerator implements Generator
      */
     private $files;
 
-    /** @var Tree */
-    private $tree;
-
     public function __construct($files)
     {
         $this->files = $files;

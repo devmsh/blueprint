@@ -2,22 +2,10 @@
 
 namespace Blueprint\Generators;
 
-use Blueprint\Contracts\Generator;
 use Blueprint\Tree;
 
-class SeederGenerator implements Generator
+class SeederGenerator extends Generator
 {
-    /** @var \Illuminate\Contracts\Filesystem\Filesystem */
-    private $files;
-
-    /** @var Tree */
-    private $tree;
-
-    public function __construct($files)
-    {
-        $this->files = $files;
-    }
-
     public function output(Tree $tree): array
     {
         $this->tree = $tree;

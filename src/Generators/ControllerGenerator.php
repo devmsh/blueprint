@@ -3,7 +3,6 @@
 namespace Blueprint\Generators;
 
 use Blueprint\Blueprint;
-use Blueprint\Contracts\Generator;
 use Blueprint\Models\Controller;
 use Blueprint\Models\Statements\DispatchStatement;
 use Blueprint\Models\Statements\EloquentStatement;
@@ -19,23 +18,8 @@ use Blueprint\Models\Statements\ValidateStatement;
 use Blueprint\Tree;
 use Illuminate\Support\Str;
 
-class ControllerGenerator implements Generator
+class ControllerGenerator extends Generator
 {
-    const INDENT = '        ';
-
-    /** @var \Illuminate\Contracts\Filesystem\Filesystem */
-    private $files;
-
-    private $imports = [];
-
-    /** @var Tree */
-    private $tree;
-
-    public function __construct($files)
-    {
-        $this->files = $files;
-    }
-
     public function output(Tree $tree): array
     {
         $this->tree = $tree;
@@ -46,21 +30,13 @@ class ControllerGenerator implements Generator
 
         /** @var \Blueprint\Models\Controller $controller */
         foreach ($tree->controllers() as $controller) {
-            $this->addImport($controller, 'Illuminate\\Http\\Request');
+            $this->addImport($controller->name(), 'Illuminate\\Http\\Request');
 
             if ($controller->fullyQualifiedNamespace() !== 'App\\Http\\Controllers') {
-                $this->addImport($controller, 'App\\Http\\Controllers\\Controller');
+                $this->addImport($controller->name(), 'App\\Http\\Controllers\\Controller');
             }
 
-            $path = $this->getPath($controller);
-
-            if (!$this->files->exists(dirname($path))) {
-                $this->files->makeDirectory(dirname($path), 0755, true);
-            }
-
-            $this->files->put($path, $this->populateStub($stub, $controller));
-
-            $output['created'][] = $path;
+            $output['created'][] = $this->outputStub($controller,$stub);
         }
 
         return $output;
@@ -76,7 +52,7 @@ class ControllerGenerator implements Generator
         $stub = str_replace('{{ namespace }}', $controller->fullyQualifiedNamespace(), $stub);
         $stub = str_replace('{{ class }}', $controller->className(), $stub);
         $stub = str_replace('{{ methods }}', $this->buildMethods($controller), $stub);
-        $stub = str_replace('{{ imports }}', $this->buildImports($controller), $stub);
+        $stub = str_replace('{{ imports }}', $this->buildImports($controller->name()), $stub);
 
         return $stub;
     }
@@ -101,7 +77,7 @@ class ControllerGenerator implements Generator
 
                 $search = '(Request $request';
                 $method = str_replace($search, $search.', '.$context.' '.$variable, $method);
-                $this->addImport($controller, $reference);
+                $this->addImport($controller->name(), $reference);
             }
 
             $body = '';
@@ -111,11 +87,11 @@ class ControllerGenerator implements Generator
                 if ($statement instanceof SendStatement) {
                     $body .= self::INDENT.$statement->output().PHP_EOL;
                     if ($statement->type() === SendStatement::TYPE_NOTIFICATION_WITH_FACADE) {
-                        $this->addImport($controller, 'Illuminate\\Support\\Facades\\Notification');
-                        $this->addImport($controller, config('blueprint.namespace').'\\Notification\\'.$statement->mail());
+                        $this->addImport($controller->name(), 'Illuminate\\Support\\Facades\\Notification');
+                        $this->addImport($controller->name(), config('blueprint.namespace').'\\Notification\\'.$statement->mail());
                     } elseif ($statement->type() === SendStatement::TYPE_MAIL) {
-                        $this->addImport($controller, 'Illuminate\\Support\\Facades\\Mail');
-                        $this->addImport($controller, config('blueprint.namespace').'\\Mail\\'.$statement->mail());
+                        $this->addImport($controller->name(), 'Illuminate\\Support\\Facades\\Mail');
+                        $this->addImport($controller->name(), config('blueprint.namespace').'\\Mail\\'.$statement->mail());
                     }
                 } elseif ($statement instanceof ValidateStatement) {
                     $using_validation = true;
@@ -126,14 +102,14 @@ class ControllerGenerator implements Generator
                     $method = str_replace('\Illuminate\Http\Request $request', '\\'.$fqcn.' $request', $method);
                     $method = str_replace('(Request $request', '('.$class_name.' $request', $method);
 
-                    $this->addImport($controller, $fqcn);
+                    $this->addImport($controller->name(), $fqcn);
                 } elseif ($statement instanceof DispatchStatement) {
                     $body .= self::INDENT.$statement->output().PHP_EOL;
-                    $this->addImport($controller, config('blueprint.namespace').'\\Jobs\\'.$statement->job());
+                    $this->addImport($controller->name(), config('blueprint.namespace').'\\Jobs\\'.$statement->job());
                 } elseif ($statement instanceof FireStatement) {
                     $body .= self::INDENT.$statement->output().PHP_EOL;
                     if (!$statement->isNamedEvent()) {
-                        $this->addImport($controller, config('blueprint.namespace').'\\Events\\'.$statement->event());
+                        $this->addImport($controller->name(), config('blueprint.namespace').'\\Events\\'.$statement->event());
                     }
                 } elseif ($statement instanceof RenderStatement) {
                     $body .= self::INDENT.$statement->output().PHP_EOL;
@@ -147,7 +123,7 @@ class ControllerGenerator implements Generator
                         $import .= ' as '.$statement->name().'Resource';
                     }
 
-                    $this->addImport($controller, $import);
+                    $this->addImport($controller->name(), $import);
 
                     $body .= self::INDENT.$statement->output().PHP_EOL;
                 } elseif ($statement instanceof RedirectStatement) {
@@ -158,10 +134,10 @@ class ControllerGenerator implements Generator
                     $body .= self::INDENT.$statement->output().PHP_EOL;
                 } elseif ($statement instanceof EloquentStatement) {
                     $body .= self::INDENT.$statement->output($controller->prefix(), $name, $using_validation).PHP_EOL;
-                    $this->addImport($controller, $this->determineModel($controller, $statement->reference()));
+                    $this->addImport($controller->name(), $this->determineModel($controller, $statement->reference()));
                 } elseif ($statement instanceof QueryStatement) {
                     $body .= self::INDENT.$statement->output($controller->prefix()).PHP_EOL;
-                    $this->addImport($controller, $this->determineModel($controller, $statement->model()));
+                    $this->addImport($controller->name(), $this->determineModel($controller, $statement->model()));
                 }
 
                 $body .= PHP_EOL;
@@ -182,21 +158,6 @@ class ControllerGenerator implements Generator
         $path = str_replace('\\', '/', Blueprint::relativeNamespace($controller->fullyQualifiedClassName()));
 
         return Blueprint::appPath().'/'.$path.'.php';
-    }
-
-    protected function buildImports(Controller $controller)
-    {
-        $imports = array_unique($this->imports[$controller->name()]);
-        sort($imports);
-
-        return implode(PHP_EOL, array_map(function ($class) {
-            return 'use '.$class.';';
-        }, $imports));
-    }
-
-    private function addImport(Controller $controller, $class)
-    {
-        $this->imports[$controller->name()][] = $class;
     }
 
     private function determineModel(Controller $controller, ?string $reference)

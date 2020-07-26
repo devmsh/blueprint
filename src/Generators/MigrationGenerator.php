@@ -2,14 +2,13 @@
 
 namespace Blueprint\Generators;
 
-use Blueprint\Contracts\Generator;
 use Blueprint\Models\Model;
 use Blueprint\Tree;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Str;
 
-class MigrationGenerator implements Generator
+class MigrationGenerator extends Generator
 {
     const INDENT = '            ';
 
@@ -33,14 +32,6 @@ class MigrationGenerator implements Generator
         'smallInteger',
         'tinyInteger',
     ];
-
-    /** @var \Illuminate\Contracts\Filesystem\Filesystem */
-    private $files;
-
-    public function __construct($files)
-    {
-        $this->files = $files;
-    }
 
     public function output(Tree $tree): array
     {

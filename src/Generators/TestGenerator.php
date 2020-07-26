@@ -3,7 +3,6 @@
 namespace Blueprint\Generators;
 
 use Blueprint\Blueprint;
-use Blueprint\Contracts\Generator;
 use Blueprint\Models\Column;
 use Blueprint\Models\Controller;
 use Blueprint\Models\Statements\DispatchStatement;
@@ -21,7 +20,7 @@ use Shift\Faker\Registry as FakerRegistry;
 use Blueprint\Tree;
 use Illuminate\Support\Str;
 
-class TestGenerator implements Generator
+class TestGenerator extends Generator
 {
     const TESTS_VIEW = 1;
     const TESTS_REDIRECT = 2;
@@ -29,20 +28,8 @@ class TestGenerator implements Generator
     const TESTS_DELETE = 8;
     const TESTS_RESPONDS = 16;
 
-    /** @var \Illuminate\Contracts\Filesystem\Filesystem */
-    private $files;
-
-    /** @var Tree */
-    private $tree;
-
-    private $imports = [];
     private $stubs = [];
     private $traits = [];
-
-    public function __construct($files)
-    {
-        $this->files = $files;
-    }
 
     public function output(Tree $tree): array
     {
@@ -54,15 +41,7 @@ class TestGenerator implements Generator
 
         /** @var \Blueprint\Models\Controller $controller */
         foreach ($tree->controllers() as $controller) {
-            $path = $this->getPath($controller);
-
-            if (! $this->files->exists(dirname($path))) {
-                $this->files->makeDirectory(dirname($path), 0755, true);
-            }
-
-            $this->files->put($path, $this->populateStub($stub, $controller));
-
-            $output['created'][] = $path;
+            $output['created'][] = $this->outputStub($controller, $stub);
         }
 
         return $output;
@@ -86,7 +65,7 @@ class TestGenerator implements Generator
         $stub = str_replace('{{ namespacedClass }}', '\\'.$controller->fullyQualifiedClassName(), $stub);
         $stub = str_replace('{{ class }}', $controller->className().'Test', $stub);
         $stub = str_replace('{{ body }}', $this->buildTestCases($controller), $stub);
-        $stub = str_replace('{{ imports }}', $this->buildImports($controller), $stub);
+        $stub = str_replace('{{ imports }}', $this->buildImports($controller->name()), $stub);
 
         return $stub;
     }
@@ -123,11 +102,13 @@ class TestGenerator implements Generator
                 $setup['data'][] = sprintf('$%s = factory(%s::class)->create();', $variable, $model);
             }
 
+            $this->addImport($controller->name(), 'Tests\\TestCase');
+
             foreach ($statements as $statement) {
                 if ($statement instanceof SendStatement) {
                     if ($statement->isNotification()) {
-                        $this->addImport($controller, 'Illuminate\\Support\\Facades\\Notification');
-                        $this->addImport($controller, config('blueprint.namespace').'\\Notification\\'.$statement->mail());
+                        $this->addImport($controller->name(), 'Illuminate\\Support\\Facades\\Notification');
+                        $this->addImport($controller->name(), config('blueprint.namespace').'\\Notification\\'.$statement->mail());
 
                         $setup['mock'][] = 'Notification::fake();';
 
@@ -167,8 +148,8 @@ class TestGenerator implements Generator
 
                         $assertions['mock'][] = $assertion;
                     } else {
-                        $this->addImport($controller, 'Illuminate\\Support\\Facades\\Mail');
-                        $this->addImport($controller, config('blueprint.namespace').'\\Mail\\'.$statement->mail());
+                        $this->addImport($controller->name(), 'Illuminate\\Support\\Facades\\Mail');
+                        $this->addImport($controller->name(), config('blueprint.namespace').'\\Mail\\'.$statement->mail());
 
                         $setup['mock'][] = 'Mail::fake();';
 
@@ -267,8 +248,8 @@ class TestGenerator implements Generator
                         }
                     }
                 } elseif ($statement instanceof DispatchStatement) {
-                    $this->addImport($controller, 'Illuminate\\Support\\Facades\\Queue');
-                    $this->addImport($controller, config('blueprint.namespace').'\\Jobs\\'.$statement->job());
+                    $this->addImport($controller->name(), 'Illuminate\\Support\\Facades\\Queue');
+                    $this->addImport($controller->name(), config('blueprint.namespace').'\\Jobs\\'.$statement->job());
 
                     $setup['mock'][] = 'Queue::fake();';
 
@@ -304,7 +285,7 @@ class TestGenerator implements Generator
 
                     $assertions['mock'][] = $assertion;
                 } elseif ($statement instanceof FireStatement) {
-                    $this->addImport($controller, 'Illuminate\\Support\\Facades\\Event');
+                    $this->addImport($controller->name(), 'Illuminate\\Support\\Facades\\Event');
 
                     $setup['mock'][] = 'Event::fake();';
 
@@ -313,7 +294,7 @@ class TestGenerator implements Generator
                     if ($statement->isNamedEvent()) {
                         $assertion .= $statement->event();
                     } else {
-                        $this->addImport($controller, config('blueprint.namespace').'\\Events\\'.$statement->event());
+                        $this->addImport($controller->name(), config('blueprint.namespace').'\\Events\\'.$statement->event());
                         $assertion .= $statement->event().'::class';
                     }
 
@@ -408,7 +389,7 @@ class TestGenerator implements Generator
                     $this->addRefreshDatabaseTrait($controller);
 
                     $model = $this->determineModel($controller->prefix(), $statement->reference());
-                    $this->addImport($controller, $modelNamespace.'\\'.$model);
+                    $this->addImport($controller->name(), $modelNamespace.'\\'.$model);
 
                     if ($statement->operation() === 'save') {
                         $tested_bits |= self::TESTS_SAVE;
@@ -448,7 +429,7 @@ class TestGenerator implements Generator
 
                     $setup['data'][] = sprintf('$%s = factory(%s::class, 3)->create();', Str::plural($variable), $model);
 
-                    $this->addImport($controller, $modelNamespace.'\\'.$this->determineModel($controller->prefix(), $statement->model()));
+                    $this->addImport($controller->name(), $modelNamespace.'\\'.$this->determineModel($controller->prefix(), $statement->model()));
                 }
             }
 
@@ -490,23 +471,6 @@ class TestGenerator implements Generator
     protected function addTrait(Controller $controller, $trait)
     {
         $this->traits[$controller->name()][] = $trait;
-    }
-
-    protected function addImport(Controller $controller, $class)
-    {
-        $this->imports[$controller->name()][] = $class;
-    }
-
-    protected function buildImports(Controller $controller)
-    {
-        $this->addImport($controller, 'Tests\\TestCase');
-
-        $imports = array_unique($this->imports[$controller->name()]);
-        sort($imports);
-
-        return implode(PHP_EOL, array_map(function ($class) {
-            return 'use '.$class.';';
-        }, $imports));
     }
 
     private function buildTraits(Controller $controller)
@@ -571,19 +535,19 @@ END;
 
     private function addFakerTrait(Controller $controller)
     {
-        $this->addImport($controller, 'Illuminate\\Foundation\\Testing\\WithFaker');
+        $this->addImport($controller->name(), 'Illuminate\\Foundation\\Testing\\WithFaker');
         $this->addTrait($controller, 'WithFaker');
     }
 
     private function addTestAssertionsTrait(Controller $controller)
     {
-        $this->addImport($controller, 'JMac\\Testing\\Traits\AdditionalAssertions');
+        $this->addImport($controller->name(), 'JMac\\Testing\\Traits\AdditionalAssertions');
         $this->addTrait($controller, 'AdditionalAssertions');
     }
 
     private function addRefreshDatabaseTrait(Controller $controller)
     {
-        $this->addImport($controller, 'Illuminate\\Foundation\\Testing\\RefreshDatabase');
+        $this->addImport($controller->name(), 'Illuminate\\Foundation\\Testing\\RefreshDatabase');
         $this->addTrait($controller, 'RefreshDatabase');
     }
 
@@ -676,7 +640,7 @@ END;
 
         $faker = sprintf('$%s = factory(%s::class)->create();', Str::beforeLast($local_column->name(), '_id'), Str::studly($reference));
 
-        $this->addImport($controller, $modelNamespace.'\\'.Str::studly($reference));
+        $this->addImport($controller->name(), $modelNamespace.'\\'.Str::studly($reference));
 
         return [$faker, $variable_name];
     }

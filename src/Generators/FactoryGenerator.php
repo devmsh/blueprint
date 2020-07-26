@@ -2,27 +2,14 @@
 
 namespace Blueprint\Generators;
 
-use Blueprint\Contracts\Generator;
 use Blueprint\Models\Column;
 use Blueprint\Models\Model;
 use Shift\Faker\Registry as FakerRegistry;
 use Blueprint\Tree;
 use Illuminate\Support\Str;
 
-class FactoryGenerator implements Generator
+class FactoryGenerator extends Generator
 {
-    const INDENT = '        ';
-
-    /** @var \Illuminate\Contracts\Filesystem\Filesystem */
-    private $files;
-
-    private $imports = [];
-
-    public function __construct($files)
-    {
-        $this->files = $files;
-    }
-
     public function output(Tree $tree): array
     {
         $output = [];
@@ -31,18 +18,10 @@ class FactoryGenerator implements Generator
 
         /** @var \Blueprint\Models\Model $model */
         foreach ($tree->models() as $model) {
-            $this->addImport($model, 'Faker\Generator as Faker');
-            $this->addImport($model, $model->fullyQualifiedClassName());
+            $this->addImport($model->name(), 'Faker\Generator as Faker');
+            $this->addImport($model->name(), $model->fullyQualifiedClassName());
 
-            $path = $this->getPath($model);
-
-            if (! $this->files->exists(dirname($path))) {
-                $this->files->makeDirectory(dirname($path), 0755, true);
-            }
-
-            $this->files->put($path, $this->populateStub($stub, $model));
-
-            $output['created'][] = $path;
+            $output['created'][] = $this->outputStub($model,$stub);
         }
 
         return $output;
@@ -67,7 +46,7 @@ class FactoryGenerator implements Generator
     {
         $stub = str_replace('{{ class }}', $model->name(), $stub);
         $stub = str_replace('{{ definition }}', $this->buildDefinition($model), $stub);
-        $stub = str_replace('{{ imports }}', $this->buildImports($model), $stub);
+        $stub = str_replace('{{ imports }}', $this->buildImports($model->name()), $stub);
 
         return $stub;
     }
@@ -161,7 +140,7 @@ class FactoryGenerator implements Generator
                 $definition .= sprintf('%s%s => $faker->%s,%s', self::INDENT, "'{$column->name()}_id'", FakerRegistry::fakerDataType('id'), PHP_EOL);
                 $definition .= sprintf('%s%s => $faker->%s,%s', self::INDENT, "'{$column->name()}_type'", FakerRegistry::fakerDataType('string'), PHP_EOL);
             } elseif ($column->dataType() === 'rememberToken') {
-                $this->addImport($model, 'Illuminate\Support\Str');
+                $this->addImport($model->name(), 'Illuminate\Support\Str');
                 $definition .= self::INDENT."'{$column->name()}' => ";
                 $definition .= 'Str::random(10)';
                 $definition .= ','.PHP_EOL;
@@ -185,21 +164,6 @@ class FactoryGenerator implements Generator
         }
 
         return trim($definition);
-    }
-
-    protected function buildImports(Model $model)
-    {
-        $imports = array_unique($this->imports[$model->name()]);
-        sort($imports);
-
-        return implode(PHP_EOL, array_map(function ($class) {
-            return 'use '.$class.';';
-        }, $imports));
-    }
-
-    private function addImport(Model $model, $class)
-    {
-        $this->imports[$model->name()][] = $class;
     }
 
     private function fillableColumns(array $columns): array
